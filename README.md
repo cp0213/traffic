@@ -1,40 +1,58 @@
 # Traffic Evaluation Tool
 
-A modern, interactive traffic evaluation tool built with React, Vite, and React Flow.
+一个基于 React + React Flow 构建的现代化链路流量评估与瓶颈分析工具。
 
-## features
+## 🌟 核心功能
 
-- **Interactive Topology**: visual drag-and-drop node editing.
-- **Traffic Simulation**: Adjust global traffic multiplier and see immediate impact.
-- **Bottleneck Detection**:
-  - 🟢 **Normal**: Traffic within limits.
-  - 🟠 **Warning**: Traffic exceeds Rate Limit.
-  - 🔴 **Critical**: Traffic exceeds Max Capacity.
-- **Configurable Nodes**: Set Daily QPS, Max QPS, and Rate Limits for each service.
-- **Import/Export**: Save your topology to JSON.
+- **交互式拓扑设计**：支持拖拽式节点布局，直观展示微服务间的调用链路。
+- **多场景页签管理 (Tabs)**：支持创建多个独立的流量模型页签，支持重命名、关闭与切换，方便对比不同业务场景。
+- **实时流量仿真**：
+  - **全局倍数调节**：通过修改 `Traffic Multiplier` 实时缩放全局入口流量。
+  - **自动传导计算**：流量根据依赖关系自动向下游传导，实时计算各节点的 `Evaluated QPS`。
+- **智能瓶颈识别**：
+  - 🟢 **正常 (Normal)**：流量处于安全范围内。
+  - 🟠 **告警 (Warning)**：超过 `Rate Limit QPS`，提示限流风险。
+  - 🔴 **严重 (Critical)**：超过 `Max Capacity QPS`，提示服务崩溃风险。
+- **强大的数据导入导出**：
+  - **Excel 专业格式**：支持导出结构化的 Excel 报表，包含 ID、基准流量、评估结果及链路关系。导入时支持灵活的列名匹配。
+  - **JSON 备份**：支持全量配置的 JSON 快速备份与恢复。
+- **便捷的操作体验**：
+  - 支持快捷键删除（选中节点或连线后按 `Delete` 或 `Backspace`）。
+  - 支持连线重新连接（Reconnect）与动态锚点。
 
-## Getting Started
+## 🚀 快速开始
 
-1. Install dependencies:
+1. **安装依赖**：
    ```bash
    npm install
    ```
-2. Start the development server:
+2. **启动开发服务器**：
    ```bash
    npm run dev
    ```
-3. Open `http://localhost:3000` in your browser.
+3. **访问应用**：在浏览器打开控制台输出的本地窗口。
 
-## Usage
+## 📖 使用指南
 
-- **Add Node**: Click the "+ Add Node" button in the top right.
-- **Connect Nodes**: Drag from the bottom handle of one node to the top handle of another (Upstream -> Downstream).
-- **Edit Node**: Click on a node to open the properties panel on the right.
-- **Set Entry**: Mark a node as "Entry Node" to make it generate traffic based on the multiplier.
-- **Evaluate**: Adjust the "Traffic Multiplier" input to scale the traffic.
+- **添加节点**：点击顶部工具栏的 "+ Add Node"。
+- **建立连接**：从节点的右侧/底部锚点拖拽至另一节点的左侧/顶部锚点（上游 -> 下游）。
+- **编辑属性**：
+  - 点击节点可在右侧面板编辑名称、API、负责人及流量指标。
+  - 节点内部也支持点击铅笔图标进行快速编辑。
+- **流量评估**：调整顶部 `Traffic Multiplier` 输入框，观察各节点水位（进度条）和颜色变化。
+- **删除操作**：
+  - **节点**：点击节点后由于右侧面板点击 "Delete Node" 或直接按键盘 `Delete`。
+  - **连线**：点击连线使其变蓝高亮，直接按键盘 `Delete` 键。
 
-## Color Guide
+## 📊 导出数据说明 (Excel)
 
-- **Green Border**: Healthy.
-- **Orange Border**: Rate Limited (Warning).
-- **Red Border**: Over Capacity (Failure).
+导出的 Excel 包含三张表：
+- **Nodes**：列出所有节点，首列为 ID，包含 `Baseline QPS`（配置值）和 `Current Evaluated QPS`（计算值）。
+- **Edges**：定义链路关系，通过 `From ID` 和 `To ID` 映射节点。
+- **Config**：保存全局倍数等配置信息。
+
+## 🎨 视觉指南
+
+- **绿色边框 (Healthy)**：运行稳健。
+- **橙色边框 (Warning)**：超过限流阈值，建议扩容或优化。
+- **红色边框 (Critical)**：超过最大承载，服务可能不可用。
