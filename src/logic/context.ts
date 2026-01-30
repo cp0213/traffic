@@ -4,6 +4,7 @@ import type { TrafficNodeData } from './types';
 interface TrafficContextType {
     updateNodeData: (id: string, data: Partial<TrafficNodeData>) => void;
     deleteNode: (id: string) => void;
+    deleteEdge: (id: string) => void;
 }
 
 export const TrafficContext = createContext<TrafficContextType | undefined>(undefined);

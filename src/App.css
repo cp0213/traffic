@@ -488,3 +488,12 @@ body {
   min-width: 80px;
   max-width: 150px;
 }
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+.react-flow__edge.selected .react-flow__edge-text {
+  fill: var(--accent);
+  font-weight: bold;
+}

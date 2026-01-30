@@ -123,6 +123,10 @@ export default function App() {
     setSelectedNodeId(null);
   };
 
+  const deleteEdge = (id: string) => {
+    setEdges(eds => eds.filter(e => e.id !== id));
+  };
+
   // -- Tab Management --
 
   const handleSwitchTab = (newId: string) => {
@@ -285,7 +289,7 @@ export default function App() {
       />
 
       <div style={{ flex: 1, position: 'relative' }}>
-        <TrafficContext.Provider value={{ updateNodeData, deleteNode }}>
+        <TrafficContext.Provider value={{ updateNodeData, deleteNode, deleteEdge }}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -294,8 +298,13 @@ export default function App() {
             onConnect={onConnect}
             onReconnect={onReconnect}
             nodeTypes={nodeTypes}
-            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-            onPaneClick={() => setSelectedNodeId(null)}
+            onNodeClick={(_, node) => {
+              setSelectedNodeId(node.id);
+            }}
+            onPaneClick={() => {
+              setSelectedNodeId(null);
+            }}
+            deleteKeyCode={['Backspace', 'Delete']}
             fitView
           >
             <Background color="#1e293b" gap={16} />
@@ -306,11 +315,13 @@ export default function App() {
 
         {selectedNode && (
           <EditPanel
-            selectedNode={selectedNode}
+            type="node"
+            selectedItem={selectedNode}
             updateNodeData={updateNodeData}
             deleteNode={deleteNode}
           />
         )}
+
       </div>
     </div>
   );
