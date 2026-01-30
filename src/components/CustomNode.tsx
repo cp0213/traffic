@@ -82,20 +82,9 @@ export function CustomNode({ id, data, selected }: NodeProps<Node<TrafficNodeDat
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     {isEditing ? (
-                        <>
-                            <div className="entry-toggle" title="Toggle Entry Point">
-                                <span style={{ fontSize: '0.6rem', color: '#94a3b8', marginRight: 4 }}>ENTRY</span>
-                                <input
-                                    type="checkbox"
-                                    className="nodrag"
-                                    checked={data.isEntry}
-                                    onChange={(e) => updateNodeData(id, { isEntry: e.target.checked })}
-                                />
-                            </div>
-                            <button className="icon-btn success" onClick={handleDoneEditing} title="Done">
-                                <Check size={14} />
-                            </button>
-                        </>
+                        <button className="icon-btn success" onClick={handleDoneEditing} title="Done">
+                            <Check size={14} />
+                        </button>
                     ) : (
                         <>
                             {data.isEntry && <span className="badge entry">ENTRY</span>}

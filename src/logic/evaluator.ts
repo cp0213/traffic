@@ -67,18 +67,18 @@ export function evaluateTraffic(
         if (!node) return;
 
         let flow = 0;
-
-        if (node.data.isEntry) {
-            // Entry Node generates traffic
-            flow = (node.data.dailyQPS || 0) * multiplier;
-            // Add incoming flow if any (e.g. chained entry?)
-        }
-
-        // Add flow from upstream
         const sources = incomingEdges.get(nodeId) || [];
-        sources.forEach(sourceId => {
-            flow += (flowMap.get(sourceId) || 0);
-        });
+
+        if (sources.length === 0) {
+            // Inference: No incoming edges means it's an entry node
+            // Entry Node generates its own traffic from baseline dailyQPS
+            flow = (node.data.dailyQPS || 0) * multiplier;
+        } else {
+            // Dependent Node: Only carries flow from its upstream sources
+            sources.forEach(sourceId => {
+                flow += (flowMap.get(sourceId) || 0);
+            });
+        }
 
         // Store calculated flow (Demand)
         flowMap.set(nodeId, flow);

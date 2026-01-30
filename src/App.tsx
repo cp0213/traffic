@@ -69,9 +69,6 @@ const autoLayoutNodes = (nodes: Node<TrafficNodeData>[], edges: Edge[]): Node<Tr
   });
 };
 
-
-
-
 interface TrafficFlow {
   id: string;
   name: string;
@@ -112,15 +109,20 @@ export default function App() {
   // Recalculate Traffic
   const runEvaluation = useCallback((currentNodes: Node<TrafficNodeData>[], currentEdges: Edge[], mult: number): Node<TrafficNodeData>[] => {
     const results = evaluateTraffic(currentNodes, currentEdges, mult);
+    const inDegreeMap = new Map<string, number>();
+    currentNodes.forEach(n => inDegreeMap.set(n.id, 0));
+    currentEdges.forEach(e => inDegreeMap.set(e.target, (inDegreeMap.get(e.target) || 0) + 1));
 
     return currentNodes.map(node => {
       const res = results.get(node.id);
+      const isEntry = (inDegreeMap.get(node.id) || 0) === 0;
       if (res) {
         return {
           ...node,
           data: {
             ...node.data,
             currentQPS: res.currentQPS,
+            isEntry,
             status: res.isBottleneck ? (res.bottleneckType === 'max_capacity' ? 'critical' : 'warning') : 'normal',
             bottleneckType: res.bottleneckType
           }
@@ -131,6 +133,7 @@ export default function App() {
         data: {
           ...node.data,
           currentQPS: 0,
+          isEntry,
           status: 'normal',
           bottleneckType: 'none'
         }
@@ -144,35 +147,13 @@ export default function App() {
   }, [edges, multiplier, runEvaluation, setNodes]);
 
   const onConnect = useCallback((params: Connection) => {
-    const targetNode = nodes.find(n => n.id === params.target);
-    if (targetNode?.data.isEntry) {
-      alert('Entry nodes cannot have incoming connections (dependencies).');
-      return;
-    }
     const newEdge = { ...params, animated: true, markerEnd: { type: MarkerType.ArrowClosed } };
     setEdges((eds) => addEdge(newEdge, eds));
-  }, [setEdges, nodes]);
+  }, [setEdges]);
 
-  // Handle Node Edit
   // Handle Node Edit
   const updateNodeData = (id: string, newData: Partial<TrafficNodeData>) => {
     setNodes(nds => {
-      // If setting isEntry to true, unset it for all other nodes
-      if (newData.isEntry === true) {
-        // Remove incoming edges for this node (Entry cannot be dependent)
-        const newEdges = edges.filter(e => e.target !== id);
-        setEdges(newEdges);
-
-        const updated = nds.map((n): Node<TrafficNodeData> => {
-          if (n.id === id) {
-            return { ...n, data: { ...n.data, ...newData } };
-          }
-          // Unset isEntry for others
-          return { ...n, data: { ...n.data, isEntry: false } };
-        });
-        return runEvaluation(updated, newEdges, multiplier);
-      }
-
       const updated = nds.map((n): Node<TrafficNodeData> => {
         if (n.id === id) {
           return { ...n, data: { ...n.data, ...newData } };
@@ -198,8 +179,7 @@ export default function App() {
         owner: 'team@example.com',
         dailyQPS: 100,
         maxQPS: 1000,
-        rateLimitQPS: 500,
-        isEntry: false
+        rateLimitQPS: 500
       }
     };
     setNodes(nds => runEvaluation([...nds, newNode], edges, multiplier));
@@ -332,29 +312,36 @@ export default function App() {
     const edgesRows: any[] = [];
 
     syncedTabs.forEach(tab => {
-      tab.nodes.forEach(n => {
+      const idMap = new Map<string, number>();
+
+      tab.nodes.forEach((n, idx) => {
+        const simpleId = idx + 1;
+        idMap.set(n.id, simpleId);
         nodesRows.push({
           'Tab Name': tab.name,
+          'ID': simpleId,
           'Microservice': n.data.microservice,
           'API': n.data.api,
           'Owner': n.data.owner,
           'Daily QPS': n.data.dailyQPS,
           'Max QPS': n.data.maxQPS,
-          'Rate Limit QPS': n.data.rateLimitQPS,
-          'Is Entry': n.data.isEntry ? 'Yes' : 'No'
+          'Rate Limit QPS': n.data.rateLimitQPS
         });
       });
 
       tab.edges.forEach(e => {
         const sourceNode = tab.nodes.find(sn => sn.id === e.source);
         const targetNode = tab.nodes.find(tn => tn.id === e.target);
-        if (sourceNode && targetNode) {
+        const fromSimpleId = idMap.get(e.source);
+        const toSimpleId = idMap.get(e.target);
+
+        if (sourceNode && targetNode && fromSimpleId && toSimpleId) {
           edgesRows.push({
             'Tab Name': tab.name,
+            'From ID': fromSimpleId,
+            'To ID': toSimpleId,
             'From Microservice': sourceNode.data.microservice,
-            'From API': sourceNode.data.api,
-            'To Microservice': targetNode.data.microservice,
-            'To API': targetNode.data.api
+            'To Microservice': targetNode.data.microservice
           });
         }
       });
@@ -374,101 +361,144 @@ export default function App() {
 
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
+      try {
+        const data = evt.target?.result;
+        if (!data) throw new Error('Data read error');
 
-      const wsNodes = wb.Sheets['Nodes'];
-      const wsEdges = wb.Sheets['Edges'];
-      const wsConfig = wb.Sheets['Config'];
+        const wb = XLSX.read(data, { type: 'array' });
 
-      if (!wsNodes) {
-        alert('Excel must have a "Nodes" sheet.');
-        return;
-      }
+        const wsNodes = wb.Sheets['Nodes'];
+        const wsEdges = wb.Sheets['Edges'];
+        const wsConfig = wb.Sheets['Config'];
 
-      const nodesRows = XLSX.utils.sheet_to_json(wsNodes) as any[];
-      const edgesRows = wsEdges ? XLSX.utils.sheet_to_json(wsEdges) as any[] : [];
-      const configRows = wsConfig ? XLSX.utils.sheet_to_json(wsConfig) as any[] : [];
-
-      const tabDataMap = new Map<string, { nodes: Node<TrafficNodeData>[], edges: Edge[] }>();
-      const nodeLookup = new Map<string, Map<string, string>>();
-
-      nodesRows.forEach(row => {
-        const tabName = String(row['Tab Name'] || 'Flow');
-        if (!tabDataMap.has(tabName)) {
-          tabDataMap.set(tabName, { nodes: [], edges: [] });
-          nodeLookup.set(tabName, new Map());
+        if (!wsNodes) {
+          alert('Excel must have a "Nodes" sheet.');
+          return;
         }
 
-        const microservice = String(row.Microservice || 'service');
-        const api = String(row.API || '/');
-        const nodeId = `node-${tabName}-${microservice}-${api}`;
-        nodeLookup.get(tabName)!.set(`${microservice}|${api}`, nodeId);
+        const nodesRows = XLSX.utils.sheet_to_json(wsNodes) as any[];
+        const edgesRows = wsEdges ? XLSX.utils.sheet_to_json(wsEdges) as any[] : [];
+        const configRows = wsConfig ? XLSX.utils.sheet_to_json(wsConfig) as any[] : [];
 
-        const node: Node<TrafficNodeData> = {
-          id: nodeId,
-          type: 'custom',
-          position: { x: 0, y: 0 },
-          data: {
-            label: microservice,
-            microservice,
-            api,
-            owner: String(row.Owner || ''),
-            dailyQPS: Number(row['Daily QPS']) || 0,
-            maxQPS: Number(row['Max QPS']) || 1000,
-            rateLimitQPS: Number(row['Rate Limit QPS']) || 500,
-            isEntry: row['Is Entry'] === 'Yes' || row['Is Entry'] === true
+        const tabDataMap = new Map<string, { nodes: Node<TrafficNodeData>[], edges: Edge[] }>();
+        const nodeLookup = new Map<string, Map<string, string>>();
+
+        nodesRows.forEach((row, index) => {
+          const tabName = String(row['Tab Name'] || 'Flow').trim();
+          if (!tabDataMap.has(tabName)) {
+            tabDataMap.set(tabName, { nodes: [], edges: [] });
+            nodeLookup.set(tabName, new Map());
           }
-        };
-        tabDataMap.get(tabName)!.nodes.push(node);
-      });
 
-      edgesRows.forEach(row => {
-        const tabName = String(row['Tab Name'] || 'Flow');
-        const lookup = nodeLookup.get(tabName);
-        if (!lookup) return;
+          const microservice = String(row.Microservice || '').trim();
+          const api = String(row.API || '').trim();
+          if (!microservice) return;
 
-        const sourceId = lookup.get(`${row['From Microservice']}|${row['From API']}`);
-        const targetId = lookup.get(`${row['To Microservice']}|${row['To API']}`);
+          const nodeId = `node-${tabName}-${index}`;
+          const excelId = row.ID || row.Id || row.id;
 
-        if (sourceId && targetId) {
-          tabDataMap.get(tabName)!.edges.push({
-            id: `e-${sourceId}-${targetId}`,
-            source: sourceId,
-            target: targetId,
-            animated: true,
-            markerEnd: { type: MarkerType.ArrowClosed }
-          });
-        }
-      });
+          const lookup = nodeLookup.get(tabName)!;
+          // Store by Excel ID if present
+          if (excelId !== undefined) {
+            lookup.set(`id:${excelId}`, nodeId);
+          }
+          // Also store by name as fallback
+          const nameKey = `name:${microservice}|${api}`;
+          if (!lookup.has(nameKey)) {
+            lookup.set(nameKey, nodeId);
+          }
 
-      let importedMultiplier = 1;
-      if (configRows.length > 0 && configRows[0]['Global Multiplier']) {
-        importedMultiplier = Number(configRows[0]['Global Multiplier']);
-        setMultiplier(importedMultiplier);
-      }
-
-      const newTabs: TrafficFlow[] = [];
-      tabDataMap.forEach((flow, name) => {
-        const layoutedNodes = autoLayoutNodes(flow.nodes, flow.edges);
-        const evaluatedNodes = runEvaluation(layoutedNodes, flow.edges, importedMultiplier);
-
-        newTabs.push({
-          id: `tab-${Date.now()}-${name}`,
-          name: name,
-          nodes: evaluatedNodes,
-          edges: flow.edges
+          const node: Node<TrafficNodeData> = {
+            id: nodeId,
+            type: 'custom',
+            position: { x: 0, y: 0 },
+            data: {
+              label: microservice,
+              microservice,
+              api,
+              owner: String(row.Owner || ''),
+              dailyQPS: Number(row['Daily QPS']) || 0,
+              maxQPS: Number(row['Max QPS']) || 1000,
+              rateLimitQPS: Number(row['Rate Limit QPS']) || 500
+            }
+          };
+          tabDataMap.get(tabName)!.nodes.push(node);
         });
-      });
 
-      if (newTabs.length > 0) {
-        setTabs(newTabs);
-        setActiveTabId(newTabs[0].id);
-        setNodes(newTabs[0].nodes);
-        setEdges(newTabs[0].edges);
+        edgesRows.forEach(row => {
+          const tabName = String(row['Tab Name'] || 'Flow').trim();
+          const lookup = nodeLookup.get(tabName);
+          if (!lookup) return;
+
+          let sourceId = '';
+          let targetId = '';
+
+          // 1. Try linking via ID if both From ID and To ID exist
+          const eFromId = row['From ID'] || row.FromId;
+          const eToId = row['To ID'] || row.ToId;
+
+          if (eFromId !== undefined && eToId !== undefined) {
+            sourceId = lookup.get(`id:${eFromId}`) || '';
+            targetId = lookup.get(`id:${eToId}`) || '';
+          }
+
+          // 2. Fallback to name-based if IDs didn't match or weren't provided
+          if (!sourceId || !targetId) {
+            const fromSvc = String(row['From Microservice'] || '').trim();
+            const fromApi = String(row['From API'] || '').trim();
+            const toSvc = String(row['To Microservice'] || '').trim();
+            const toApi = String(row['To API'] || '').trim();
+
+            sourceId = sourceId || lookup.get(`name:${fromSvc}|${fromApi}`) || '';
+            targetId = targetId || lookup.get(`name:${toSvc}|${toApi}`) || '';
+          }
+
+          if (sourceId && targetId) {
+            tabDataMap.get(tabName)!.edges.push({
+              id: `e-${sourceId}-${targetId}-${Math.random().toString(36).substr(2, 5)}`,
+              source: sourceId,
+              target: targetId,
+              animated: true,
+              markerEnd: { type: MarkerType.ArrowClosed }
+            });
+          }
+        });
+
+        let importedMultiplier = 1;
+        if (configRows.length > 0) {
+          const m = configRows[0]['Global Multiplier'] || configRows[0]['Multiplier'];
+          if (m !== undefined) importedMultiplier = Number(m);
+        }
+        setMultiplier(importedMultiplier);
+
+        const newTabs: TrafficFlow[] = [];
+        let tabCounter = 0;
+        tabDataMap.forEach((flow, name) => {
+          const layoutedNodes = autoLayoutNodes(flow.nodes, flow.edges);
+          const evaluatedNodes = runEvaluation(layoutedNodes, flow.edges, importedMultiplier);
+
+          newTabs.push({
+            id: `tab-${Date.now()}-${tabCounter++}`,
+            name: name,
+            nodes: evaluatedNodes,
+            edges: flow.edges
+          });
+        });
+
+        if (newTabs.length > 0) {
+          setTabs(newTabs);
+          setActiveTabId(newTabs[0].id);
+          setNodes(newTabs[0].nodes);
+          setEdges(newTabs[0].edges);
+        } else {
+          alert('Excel 中没有找到有效的节点数据。');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('导入 Excel 失败: ' + (err instanceof Error ? err.message : '未知错误'));
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
   return (
@@ -619,16 +649,6 @@ export default function App() {
                 onChange={e => updateNodeData(selectedNode.id, { owner: e.target.value })}
                 placeholder="team@example.com"
               />
-            </div>
-
-            <div className="form-group form-checkbox" style={{ background: 'rgba(59, 130, 246, 0.1)', padding: 10, borderRadius: 6, marginBottom: 15, border: '1px solid rgba(59, 130, 246, 0.2)' }}>
-              <input
-                type="checkbox"
-                id="isEntry"
-                checked={selectedNode.data.isEntry}
-                onChange={e => updateNodeData(selectedNode.id, { isEntry: e.target.checked })}
-              />
-              <label htmlFor="isEntry" style={{ marginBottom: 0, color: '#93c5fd', fontWeight: 500, cursor: 'pointer' }}>Is Entry Node?</label>
             </div>
 
             <div className="form-group">

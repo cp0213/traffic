@@ -6,10 +6,10 @@ export interface TrafficNodeData extends Record<string, unknown> {
     dailyQPS: number;
     maxQPS: number;
     rateLimitQPS: number;
-    isEntry: boolean;
 
     // Dynamic fields for visualization
     currentQPS?: number;
+    isEntry?: boolean; // Now a dynamic field for visualization
     status?: 'normal' | 'warning' | 'critical';
     bottleneckType?: 'none' | 'rate_limit' | 'max_capacity';
 }
