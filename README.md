@@ -23,7 +23,7 @@ A modern, interactive traffic evaluation tool built with React, Vite, and React 
    ```bash
    npm run dev
    ```
-3. Open `http://localhost:5173` in your browser.
+3. Open `http://localhost:3000` in your browser.
 
 ## Usage
 

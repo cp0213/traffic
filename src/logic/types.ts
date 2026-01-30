@@ -1,5 +1,8 @@
 export interface TrafficNodeData extends Record<string, unknown> {
     label: string;
+    microservice: string;
+    api: string;
+    owner: string;
     dailyQPS: number;
     maxQPS: number;
     rateLimitQPS: number;

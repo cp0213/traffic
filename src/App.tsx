@@ -1,35 +1,57 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, addEdge } from '@xyflow/react';
+import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, addEdge, MarkerType } from '@xyflow/react';
 import type { Connection, Edge, Node, NodeTypes } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { CustomNode } from './components/CustomNode';
 import { evaluateTraffic } from './logic/evaluator';
 import type { TrafficNodeData } from './logic/types';
+import { TrafficContext } from './logic/context';
 import './App.css';
-import { Activity, Plus, Download, Upload } from 'lucide-react';
+import { Activity, Plus, Download, Upload, X } from 'lucide-react';
 
 // Define NodeTypes to satisfy strict typing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeTypes: NodeTypes = { custom: CustomNode as any };
 
-const initialNodes: Node<TrafficNodeData>[] = [
-  { id: '1', type: 'custom', position: { x: 250, y: 50 }, data: { label: 'API Gateway', dailyQPS: 1000, maxQPS: 5000, rateLimitQPS: 3000, isEntry: true } },
-  { id: '2', type: 'custom', position: { x: 250, y: 250 }, data: { label: 'Auth Service', dailyQPS: 1000, maxQPS: 2000, rateLimitQPS: 1500, isEntry: false } },
-  { id: '3', type: 'custom', position: { x: 100, y: 450 }, data: { label: 'User DB', dailyQPS: 500, maxQPS: 1000, rateLimitQPS: 800, isEntry: false } },
-  { id: '4', type: 'custom', position: { x: 400, y: 450 }, data: { label: 'Order Service', dailyQPS: 800, maxQPS: 2000, rateLimitQPS: 1200, isEntry: false } },
-];
 
-const initialEdges: Edge[] = [
-  { id: 'e1-2', source: '1', target: '2', animated: true },
-  { id: 'e2-3', source: '2', target: '3', animated: true },
-  { id: 'e2-4', source: '2', target: '4', animated: true },
-];
+
+
+interface TrafficFlow {
+  id: string;
+  name: string;
+  nodes: Node<TrafficNodeData>[];
+  edges: Edge[];
+}
 
 export default function App() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [activeTabId, setActiveTabId] = useState<string>('1');
+  const [tabs, setTabs] = useState<TrafficFlow[]>([
+    { id: '1', name: 'Main Flow', nodes: [], edges: [] }
+  ]);
+
+  // We use the hooks for the *active* flow to get ReactFlow performance benefits
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<TrafficNodeData>>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [multiplier, setMultiplier] = useState(1);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editingTabName, setEditingTabName] = useState('');
+
+  // Sync active flow data to tabs state when nodes/edges change
+  // We use a ref or effect?
+  // Actually, better to sync only when switching tabs or saving.
+  // BUT if we want to export all, we need them customized.
+  // Let's stick to: Master state is `tabs`. Component state `nodes/edges` is for the *View*.
+  // When switching: Save `nodes/edges` to `tabs`. Load new `nodes/edges`.
+
+  const saveCurrentTab = useCallback(() => {
+    setTabs(prev => prev.map(t => {
+      if (t.id === activeTabId) {
+        return { ...t, nodes, edges };
+      }
+      return t;
+    }));
+  }, [activeTabId, nodes, edges]);
 
   // Recalculate Traffic
   const runEvaluation = useCallback((currentNodes: Node<TrafficNodeData>[], currentEdges: Edge[], mult: number): Node<TrafficNodeData>[] => {
@@ -62,29 +84,45 @@ export default function App() {
 
   // Update when Edges or Multiplier change
   useEffect(() => {
-    // Only update if data would change.
     setNodes(nds => runEvaluation(nds, edges, multiplier));
   }, [edges, multiplier, runEvaluation, setNodes]);
 
-  // Initial Run
-  useEffect(() => {
-    setNodes(nds => runEvaluation(nds, edges, multiplier));
-  }, []);
-
   const onConnect = useCallback((params: Connection) => {
-    setEdges((eds) => addEdge({ ...params, animated: true }, eds));
-  }, [setEdges]);
+    const targetNode = nodes.find(n => n.id === params.target);
+    if (targetNode?.data.isEntry) {
+      alert('Entry nodes cannot have incoming connections (dependencies).');
+      return;
+    }
+    const newEdge = { ...params, animated: true, markerEnd: { type: MarkerType.ArrowClosed } };
+    setEdges((eds) => addEdge(newEdge, eds));
+  }, [setEdges, nodes]);
 
+  // Handle Node Edit
   // Handle Node Edit
   const updateNodeData = (id: string, newData: Partial<TrafficNodeData>) => {
     setNodes(nds => {
+      // If setting isEntry to true, unset it for all other nodes
+      if (newData.isEntry === true) {
+        // Remove incoming edges for this node (Entry cannot be dependent)
+        const newEdges = edges.filter(e => e.target !== id);
+        setEdges(newEdges);
+
+        const updated = nds.map((n): Node<TrafficNodeData> => {
+          if (n.id === id) {
+            return { ...n, data: { ...n.data, ...newData } };
+          }
+          // Unset isEntry for others
+          return { ...n, data: { ...n.data, isEntry: false } };
+        });
+        return runEvaluation(updated, newEdges, multiplier);
+      }
+
       const updated = nds.map((n): Node<TrafficNodeData> => {
         if (n.id === id) {
           return { ...n, data: { ...n.data, ...newData } };
         }
         return n;
       });
-      // Re-run evaluation immediately on data change
       return runEvaluation(updated, edges, multiplier);
     });
   };
@@ -99,6 +137,9 @@ export default function App() {
       position: { x: Math.random() * 400 + 100, y: Math.random() * 400 + 100 },
       data: {
         label: 'New Service',
+        microservice: 'service-name',
+        api: '/api/endpoint',
+        owner: 'team@example.com',
         dailyQPS: 100,
         maxQPS: 1000,
         rateLimitQPS: 500,
@@ -114,13 +155,80 @@ export default function App() {
     setSelectedNodeId(null);
   };
 
+  // -- Tab Management --
+
+  const handleSwitchTab = (newId: string) => {
+    if (newId === activeTabId) return;
+
+    // 1. Update current tab in local 'tabs' array
+    const updatedTabs = tabs.map(t =>
+      t.id === activeTabId ? { ...t, nodes, edges } : t
+    );
+    setTabs(updatedTabs);
+
+    // 2. Load new tab
+    const target = updatedTabs.find(t => t.id === newId);
+    if (target) {
+      setActiveTabId(newId);
+      setNodes(target.nodes);
+      setEdges(target.edges);
+      setSelectedNodeId(null);
+    }
+  };
+
+  const handleAddTab = () => {
+    // Save current first
+    const updatedTabs = tabs.map(t =>
+      t.id === activeTabId ? { ...t, nodes, edges } : t
+    );
+
+    const newId = Date.now().toString();
+    const newTab: TrafficFlow = {
+      id: newId,
+      name: `Flow ${updatedTabs.length + 1}`,
+      nodes: [],
+      edges: []
+    };
+
+    setTabs([...updatedTabs, newTab]);
+    setActiveTabId(newId);
+    setNodes([]);
+    setEdges([]);
+    setSelectedNodeId(null);
+  };
+
+  const handleCloseTab = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (tabs.length === 1) return; // Don't close last tab
+
+    const newTabs = tabs.filter(t => t.id !== id);
+    setTabs(newTabs);
+
+    if (id === activeTabId) {
+      // Switch to the last one or first one
+      const nextTab = newTabs[newTabs.length - 1];
+      setActiveTabId(nextTab.id);
+      setNodes(nextTab.nodes);
+      setEdges(nextTab.edges);
+    }
+  };
+
+  const handleRenameTab = (id: string, newName: string) => {
+    setTabs(prev => prev.map(t => t.id === id ? { ...t, name: newName } : t));
+  };
+
+
   const handleExport = () => {
-    const data = { nodes, edges, multiplier };
+    // Save current state to tabs first to ensure it's up to date
+    const currentTab = { id: activeTabId, name: tabs.find(t => t.id === activeTabId)?.name || 'Flow', nodes, edges };
+    // We can export just the current tab or all. Let's export current for now to match behavior.
+    const data = { ...currentTab, multiplier };
+
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'traffic-config.json';
+    a.download = `traffic-flow-${currentTab.name}.json`;
     a.click();
   };
 
@@ -132,9 +240,25 @@ export default function App() {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const json = JSON.parse(event.target?.result as string) as any;
-          if (json.nodes) setNodes(json.nodes);
-          if (json.edges) setEdges(json.edges);
-          if (json.multiplier) setMultiplier(json.multiplier);
+          if (json.nodes && json.edges) {
+            // Import as NEW Tab
+            const newId = Date.now().toString();
+            const newTab: TrafficFlow = {
+              id: newId,
+              name: json.name || file.name.replace('.json', ''),
+              nodes: json.nodes,
+              edges: json.edges
+            };
+            // Save current work before switch
+            setTabs(prev => {
+              const saved = prev.map(t => t.id === activeTabId ? { ...t, nodes, edges } : t);
+              return [...saved, newTab];
+            });
+            setActiveTabId(newId);
+            setNodes(newTab.nodes);
+            setEdges(newTab.edges);
+            if (json.multiplier) setMultiplier(json.multiplier);
+          }
         } catch (err) {
           console.error(err);
           alert('Invalid JSON');
@@ -181,31 +305,108 @@ export default function App() {
         </div>
       </header>
 
+      {/* Tabs Bar */}
+      <div className="tabs-header">
+        {tabs.map(tab => {
+          const isEditing = editingTabId === tab.id;
+          return (
+            <div
+              key={tab.id}
+              className={`tab ${activeTabId === tab.id ? 'active' : ''}`}
+              onClick={() => !isEditing && handleSwitchTab(tab.id)}
+            >
+              {isEditing ? (
+                <input
+                  className="tab-name-input nodrag"
+                  value={editingTabName}
+                  onChange={(e) => setEditingTabName(e.target.value)}
+                  onBlur={() => {
+                    handleRenameTab(tab.id, editingTabName);
+                    setEditingTabId(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleRenameTab(tab.id, editingTabName);
+                      setEditingTabId(null);
+                    } else if (e.key === 'Escape') {
+                      setEditingTabId(null);
+                    }
+                  }}
+                  autoFocus
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingTabId(tab.id);
+                    setEditingTabName(tab.name);
+                  }}
+                >
+                  {tab.name}
+                </span>
+              )}
+              <div
+                className="tab-close"
+                onClick={(e) => handleCloseTab(e, tab.id)}
+                title="Close Tab"
+              >
+                <X size={14} />
+              </div>
+            </div>
+          );
+        })}
+        <div className="new-tab-btn" onClick={handleAddTab} title="New Flow">
+          <Plus size={16} />
+        </div>
+      </div>
+
       <div style={{ flex: 1, position: 'relative' }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          nodeTypes={nodeTypes}
-          onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-          onPaneClick={() => setSelectedNodeId(null)}
-          fitView
-        >
-          <Background color="#1e293b" gap={16} />
-          <Controls />
-          <MiniMap style={{ background: '#1e293b' }} nodeColor={() => '#3b82f6'} />
-        </ReactFlow>
+        <TrafficContext.Provider value={{ updateNodeData, deleteNode }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            nodeTypes={nodeTypes}
+            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+            onPaneClick={() => setSelectedNodeId(null)}
+            fitView
+          >
+            <Background color="#1e293b" gap={16} />
+            <Controls />
+            <MiniMap style={{ background: '#1e293b' }} nodeColor={() => '#3b82f6'} />
+          </ReactFlow>
+        </TrafficContext.Provider>
 
         {selectedNode && (
           <div className="edit-panel">
             <h3 className="panel-title">Edit Node</h3>
             <div className="form-group">
-              <label>Service Name</label>
+              <label>Microservice Name</label>
               <input
-                value={selectedNode.data.label}
-                onChange={e => updateNodeData(selectedNode.id, { label: e.target.value })}
+                value={selectedNode.data.microservice}
+                onChange={e => updateNodeData(selectedNode.id, { microservice: e.target.value })}
+                placeholder="service-name"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>API / Interface</label>
+              <input
+                value={selectedNode.data.api}
+                onChange={e => updateNodeData(selectedNode.id, { api: e.target.value })}
+                placeholder="/api/endpoint"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Owner</label>
+              <input
+                value={selectedNode.data.owner}
+                onChange={e => updateNodeData(selectedNode.id, { owner: e.target.value })}
+                placeholder="team@example.com"
               />
             </div>
 
