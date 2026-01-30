@@ -462,6 +462,8 @@ export default function App() {
               id: `e-${sourceId}-${targetId}-${Math.random().toString(36).substr(2, 5)}`,
               source: sourceId,
               target: targetId,
+              sourceHandle: 's-right', // Force source to right side
+              targetHandle: 't-left',  // Force target to left side
               animated: true,
               markerEnd: { type: MarkerType.ArrowClosed }
             });
