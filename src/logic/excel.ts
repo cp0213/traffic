@@ -24,8 +24,8 @@ export const exportToExcel = (tabs: TrafficFlow[], activeTabId: string, currentN
             const simpleId = idx + 1;
             idMap.set(n.id, simpleId);
             nodesRows.push({
-                'Tab Name': tab.name,
                 'ID': simpleId,
+                'Tab Name': tab.name,
                 'Microservice': n.data.microservice,
                 'API': n.data.api,
                 'Owner': n.data.owner,
@@ -43,9 +43,9 @@ export const exportToExcel = (tabs: TrafficFlow[], activeTabId: string, currentN
 
             if (sourceNode && targetNode && fromSimpleId && toSimpleId) {
                 edgesRows.push({
-                    'Tab Name': tab.name,
                     'From ID': fromSimpleId,
                     'To ID': toSimpleId,
+                    'Tab Name': tab.name,
                     'From Microservice': sourceNode.data.microservice,
                     'To Microservice': targetNode.data.microservice
                 });
