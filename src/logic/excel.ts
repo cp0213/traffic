@@ -28,10 +28,12 @@ export const exportToExcel = (tabs: TrafficFlow[], activeTabId: string, currentN
                 'Tab Name': tab.name,
                 'Microservice': n.data.microservice,
                 'API': n.data.api,
-                'Owner': n.data.owner,
-                'Daily QPS': n.data.dailyQPS,
+                'Baseline QPS': n.data.dailyQPS,
+                'Current Evaluated QPS': n.data.currentQPS || (n.data.dailyQPS * multiplier),
                 'Max QPS': n.data.maxQPS,
-                'Rate Limit QPS': n.data.rateLimitQPS
+                'Rate Limit QPS': n.data.rateLimitQPS,
+                'Status': n.data.status || 'normal',
+                'Owner': n.data.owner
             });
         });
 
@@ -114,7 +116,7 @@ export const parseExcelFile = async (
                             microservice,
                             api,
                             owner: String(row.Owner || ''),
-                            dailyQPS: Number(row['Daily QPS']) || 0,
+                            dailyQPS: Number(row['Baseline QPS'] || row['Daily QPS'] || row['QPS']) || 0,
                             maxQPS: Number(row['Max QPS']) || 1000,
                             rateLimitQPS: Number(row['Rate Limit QPS']) || 500
                         }
