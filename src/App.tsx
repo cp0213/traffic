@@ -7,7 +7,8 @@ import { evaluateTraffic } from './logic/evaluator';
 import type { TrafficNodeData } from './logic/types';
 import { TrafficContext } from './logic/context';
 import './App.css';
-import { Activity, Plus, Download, Upload, X } from 'lucide-react';
+import { Activity, Plus, Download, Upload, X, FileSpreadsheet, FileUp } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 // Define NodeTypes to satisfy strict typing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -268,6 +269,111 @@ export default function App() {
     }
   };
 
+  const handleExportExcel = () => {
+    const currentTabName = tabs.find(t => t.id === activeTabId)?.name || 'Flow';
+
+    // Prepare Nodes data
+    const nodesData = nodes.map(n => ({
+      ID: n.id,
+      Microservice: n.data.microservice,
+      API: n.data.api,
+      Owner: n.data.owner,
+      'Daily QPS': n.data.dailyQPS,
+      'Max QPS': n.data.maxQPS,
+      'Rate Limit QPS': n.data.rateLimitQPS,
+      'Is Entry': n.data.isEntry,
+      'Position X': n.position.x,
+      'Position Y': n.position.y
+    }));
+
+    // Prepare Edges data
+    const edgesData = edges.map(e => ({
+      Source: e.source,
+      Target: e.target
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const wsNodes = XLSX.utils.json_to_sheet(nodesData);
+    const wsEdges = XLSX.utils.json_to_sheet(edgesData);
+    const wsConfig = XLSX.utils.json_to_sheet([{ Multiplier: multiplier }]);
+
+    XLSX.utils.book_append_sheet(wb, wsNodes, 'Nodes');
+    XLSX.utils.book_append_sheet(wb, wsEdges, 'Edges');
+    XLSX.utils.book_append_sheet(wb, wsConfig, 'Config');
+
+    XLSX.writeFile(wb, `traffic-flow-${currentTabName}.xlsx`);
+  };
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+
+        const wsNodes = wb.Sheets['Nodes'];
+        const wsEdges = wb.Sheets['Edges'];
+        const wsConfig = wb.Sheets['Config'];
+
+        if (!wsNodes) {
+          alert('Excel must have a "Nodes" sheet.');
+          return;
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rawNodes = XLSX.utils.sheet_to_json(wsNodes) as any[];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rawEdges = wsEdges ? XLSX.utils.sheet_to_json(wsEdges) as any[] : [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rawConfig = wsConfig ? XLSX.utils.sheet_to_json(wsConfig) as any[] : [];
+        const importedMultiplier = rawConfig[0]?.Multiplier || 1;
+
+        const newNodes: Node<TrafficNodeData>[] = rawNodes.map(rn => ({
+          id: String(rn.ID || Date.now() + Math.random()),
+          type: 'custom',
+          position: { x: parseFloat(rn['Position X']) || 100, y: parseFloat(rn['Position Y']) || 100 },
+          data: {
+            label: rn.Microservice || 'New Service', // Label is still in types but we use microservice
+            microservice: rn.Microservice || 'service-name',
+            api: rn.API || '/api',
+            owner: rn.Owner || '',
+            dailyQPS: parseFloat(rn['Daily QPS']) || 0,
+            maxQPS: parseFloat(rn['Max QPS']) || 1000,
+            rateLimitQPS: parseFloat(rn['Rate Limit QPS']) || 500,
+            isEntry: !!rn['Is Entry']
+          }
+        }));
+
+        const newEdges: Edge[] = rawEdges.map(re => ({
+          id: `e-${re.Source}-${re.Target}`,
+          source: String(re.Source),
+          target: String(re.Target),
+          animated: true,
+          markerEnd: { type: MarkerType.ArrowClosed }
+        }));
+
+        const newId = Date.now().toString();
+        const newTab: TrafficFlow = {
+          id: newId,
+          name: file.name.replace('.xlsx', ''),
+          nodes: newNodes,
+          edges: newEdges
+        };
+
+        setTabs(prev => {
+          const saved = prev.map(t => t.id === activeTabId ? { ...t, nodes, edges } : t);
+          return [...saved, newTab];
+        });
+        setActiveTabId(newId);
+        setNodes(newNodes);
+        setEdges(newEdges);
+        setMultiplier(importedMultiplier);
+      };
+      reader.readAsBinaryString(file);
+    }
+  };
+
   return (
     <div className="traffic-app">
       <header className="app-header">
@@ -290,12 +396,20 @@ export default function App() {
           </div>
 
           <div className="control-group" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-            <button className="btn btn-secondary" onClick={handleExport} title="Export Config">
+            <button className="btn btn-secondary" onClick={handleExport} title="Export JSON">
               <Download size={18} />
             </button>
-            <label className="btn btn-secondary" title="Import Config" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+            <label className="btn btn-secondary" title="Import JSON" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
               <Upload size={18} />
               <input type="file" style={{ display: 'none' }} accept=".json" onChange={handleImport} />
+            </label>
+            <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
+            <button className="btn btn-secondary" onClick={handleExportExcel} title="Export Excel">
+              <FileSpreadsheet size={18} />
+            </button>
+            <label className="btn btn-secondary" title="Import Excel" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+              <FileUp size={18} />
+              <input type="file" style={{ display: 'none' }} accept=".xlsx, .xls" onChange={handleImportExcel} />
             </label>
           </div>
 
