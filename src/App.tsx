@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, addEdge, MarkerType } from '@xyflow/react';
+import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, addEdge, MarkerType, reconnectEdge } from '@xyflow/react';
 import type { Connection, Edge, Node, NodeTypes } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { CustomNode } from './components/CustomNode';
@@ -149,6 +149,10 @@ export default function App() {
   const onConnect = useCallback((params: Connection) => {
     const newEdge = { ...params, animated: true, markerEnd: { type: MarkerType.ArrowClosed } };
     setEdges((eds) => addEdge(newEdge, eds));
+  }, [setEdges]);
+
+  const onReconnect = useCallback((oldEdge: Edge, newConnection: Connection) => {
+    setEdges((els) => reconnectEdge(oldEdge, newConnection, els));
   }, [setEdges]);
 
   // Handle Node Edit
@@ -610,6 +614,7 @@ export default function App() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onReconnect={onReconnect}
             nodeTypes={nodeTypes}
             onNodeClick={(_, node) => setSelectedNodeId(node.id)}
             onPaneClick={() => setSelectedNodeId(null)}
