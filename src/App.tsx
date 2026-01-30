@@ -14,6 +14,61 @@ import * as XLSX from 'xlsx';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeTypes: NodeTypes = { custom: CustomNode as any };
 
+/**
+ * Basic auto-layout based on levels (BFS)
+ */
+const autoLayoutNodes = (nodes: Node<TrafficNodeData>[], edges: Edge[]): Node<TrafficNodeData>[] => {
+  const adj = new Map<string, string[]>();
+  const inDegree = new Map<string, number>();
+
+  nodes.forEach(n => {
+    adj.set(n.id, []);
+    inDegree.set(n.id, 0);
+  });
+
+  edges.forEach(e => {
+    adj.get(e.source)?.push(e.target);
+    inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
+  });
+
+  const levels = new Map<string, number>();
+  const queue: string[] = [];
+
+  nodes.forEach(n => {
+    if (inDegree.get(n.id) === 0) {
+      levels.set(n.id, 0);
+      queue.push(n.id);
+    }
+  });
+
+  let head = 0;
+  while (head < queue.length) {
+    const u = queue[head++];
+    const l = levels.get(u)!;
+    adj.get(u)?.forEach(v => {
+      if (!levels.has(v) || levels.get(v)! < l + 1) {
+        levels.set(v, l + 1);
+        queue.push(v);
+      }
+    });
+  }
+
+  nodes.forEach(n => {
+    if (!levels.has(n.id)) levels.set(n.id, 0);
+  });
+
+  const levelCounts = new Map<number, number>();
+  return nodes.map(n => {
+    const l = levels.get(n.id) || 0;
+    const c = levelCounts.get(l) || 0;
+    levelCounts.set(l, c + 1);
+    return {
+      ...n,
+      position: { x: l * 300, y: c * 150 }
+    };
+  });
+};
+
 
 
 
@@ -270,108 +325,150 @@ export default function App() {
   };
 
   const handleExportExcel = () => {
-    const currentTabName = tabs.find(t => t.id === activeTabId)?.name || 'Flow';
+    // Sync current tab state before export
+    const syncedTabs = tabs.map(t => t.id === activeTabId ? { ...t, nodes, edges } : t);
 
-    // Prepare Nodes data
-    const nodesData = nodes.map(n => ({
-      ID: n.id,
-      Microservice: n.data.microservice,
-      API: n.data.api,
-      Owner: n.data.owner,
-      'Daily QPS': n.data.dailyQPS,
-      'Max QPS': n.data.maxQPS,
-      'Rate Limit QPS': n.data.rateLimitQPS,
-      'Is Entry': n.data.isEntry,
-      'Position X': n.position.x,
-      'Position Y': n.position.y
-    }));
+    const nodesRows: any[] = [];
+    const edgesRows: any[] = [];
 
-    // Prepare Edges data
-    const edgesData = edges.map(e => ({
-      Source: e.source,
-      Target: e.target
-    }));
+    syncedTabs.forEach(tab => {
+      tab.nodes.forEach(n => {
+        nodesRows.push({
+          'Tab Name': tab.name,
+          'Microservice': n.data.microservice,
+          'API': n.data.api,
+          'Owner': n.data.owner,
+          'Daily QPS': n.data.dailyQPS,
+          'Max QPS': n.data.maxQPS,
+          'Rate Limit QPS': n.data.rateLimitQPS,
+          'Is Entry': n.data.isEntry ? 'Yes' : 'No'
+        });
+      });
+
+      tab.edges.forEach(e => {
+        const sourceNode = tab.nodes.find(sn => sn.id === e.source);
+        const targetNode = tab.nodes.find(tn => tn.id === e.target);
+        if (sourceNode && targetNode) {
+          edgesRows.push({
+            'Tab Name': tab.name,
+            'From Microservice': sourceNode.data.microservice,
+            'From API': sourceNode.data.api,
+            'To Microservice': targetNode.data.microservice,
+            'To API': targetNode.data.api
+          });
+        }
+      });
+    });
 
     const wb = XLSX.utils.book_new();
-    const wsNodes = XLSX.utils.json_to_sheet(nodesData);
-    const wsEdges = XLSX.utils.json_to_sheet(edgesData);
-    const wsConfig = XLSX.utils.json_to_sheet([{ Multiplier: multiplier }]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(nodesRows), 'Nodes');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(edgesRows), 'Edges');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{ 'Global Multiplier': multiplier }]), 'Config');
 
-    XLSX.utils.book_append_sheet(wb, wsNodes, 'Nodes');
-    XLSX.utils.book_append_sheet(wb, wsEdges, 'Edges');
-    XLSX.utils.book_append_sheet(wb, wsConfig, 'Config');
-
-    XLSX.writeFile(wb, `traffic-flow-${currentTabName}.xlsx`);
+    XLSX.writeFile(wb, `traffic-evaluation-all.xlsx`);
   };
 
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
+    if (!file) return;
 
-        const wsNodes = wb.Sheets['Nodes'];
-        const wsEdges = wb.Sheets['Edges'];
-        const wsConfig = wb.Sheets['Config'];
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const bstr = evt.target?.result;
+      const wb = XLSX.read(bstr, { type: 'binary' });
 
-        if (!wsNodes) {
-          alert('Excel must have a "Nodes" sheet.');
-          return;
+      const wsNodes = wb.Sheets['Nodes'];
+      const wsEdges = wb.Sheets['Edges'];
+      const wsConfig = wb.Sheets['Config'];
+
+      if (!wsNodes) {
+        alert('Excel must have a "Nodes" sheet.');
+        return;
+      }
+
+      const nodesRows = XLSX.utils.sheet_to_json(wsNodes) as any[];
+      const edgesRows = wsEdges ? XLSX.utils.sheet_to_json(wsEdges) as any[] : [];
+      const configRows = wsConfig ? XLSX.utils.sheet_to_json(wsConfig) as any[] : [];
+
+      const tabDataMap = new Map<string, { nodes: Node<TrafficNodeData>[], edges: Edge[] }>();
+      const nodeLookup = new Map<string, Map<string, string>>();
+
+      nodesRows.forEach(row => {
+        const tabName = String(row['Tab Name'] || 'Flow');
+        if (!tabDataMap.has(tabName)) {
+          tabDataMap.set(tabName, { nodes: [], edges: [] });
+          nodeLookup.set(tabName, new Map());
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rawNodes = XLSX.utils.sheet_to_json(wsNodes) as any[];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rawEdges = wsEdges ? XLSX.utils.sheet_to_json(wsEdges) as any[] : [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rawConfig = wsConfig ? XLSX.utils.sheet_to_json(wsConfig) as any[] : [];
-        const importedMultiplier = rawConfig[0]?.Multiplier || 1;
+        const microservice = String(row.Microservice || 'service');
+        const api = String(row.API || '/');
+        const nodeId = `node-${tabName}-${microservice}-${api}`;
+        nodeLookup.get(tabName)!.set(`${microservice}|${api}`, nodeId);
 
-        const newNodes: Node<TrafficNodeData>[] = rawNodes.map(rn => ({
-          id: String(rn.ID || Date.now() + Math.random()),
+        const node: Node<TrafficNodeData> = {
+          id: nodeId,
           type: 'custom',
-          position: { x: parseFloat(rn['Position X']) || 100, y: parseFloat(rn['Position Y']) || 100 },
+          position: { x: 0, y: 0 },
           data: {
-            label: rn.Microservice || 'New Service', // Label is still in types but we use microservice
-            microservice: rn.Microservice || 'service-name',
-            api: rn.API || '/api',
-            owner: rn.Owner || '',
-            dailyQPS: parseFloat(rn['Daily QPS']) || 0,
-            maxQPS: parseFloat(rn['Max QPS']) || 1000,
-            rateLimitQPS: parseFloat(rn['Rate Limit QPS']) || 500,
-            isEntry: !!rn['Is Entry']
+            label: microservice,
+            microservice,
+            api,
+            owner: String(row.Owner || ''),
+            dailyQPS: Number(row['Daily QPS']) || 0,
+            maxQPS: Number(row['Max QPS']) || 1000,
+            rateLimitQPS: Number(row['Rate Limit QPS']) || 500,
+            isEntry: row['Is Entry'] === 'Yes' || row['Is Entry'] === true
           }
-        }));
-
-        const newEdges: Edge[] = rawEdges.map(re => ({
-          id: `e-${re.Source}-${re.Target}`,
-          source: String(re.Source),
-          target: String(re.Target),
-          animated: true,
-          markerEnd: { type: MarkerType.ArrowClosed }
-        }));
-
-        const newId = Date.now().toString();
-        const newTab: TrafficFlow = {
-          id: newId,
-          name: file.name.replace('.xlsx', ''),
-          nodes: newNodes,
-          edges: newEdges
         };
+        tabDataMap.get(tabName)!.nodes.push(node);
+      });
 
-        setTabs(prev => {
-          const saved = prev.map(t => t.id === activeTabId ? { ...t, nodes, edges } : t);
-          return [...saved, newTab];
-        });
-        setActiveTabId(newId);
-        setNodes(newNodes);
-        setEdges(newEdges);
+      edgesRows.forEach(row => {
+        const tabName = String(row['Tab Name'] || 'Flow');
+        const lookup = nodeLookup.get(tabName);
+        if (!lookup) return;
+
+        const sourceId = lookup.get(`${row['From Microservice']}|${row['From API']}`);
+        const targetId = lookup.get(`${row['To Microservice']}|${row['To API']}`);
+
+        if (sourceId && targetId) {
+          tabDataMap.get(tabName)!.edges.push({
+            id: `e-${sourceId}-${targetId}`,
+            source: sourceId,
+            target: targetId,
+            animated: true,
+            markerEnd: { type: MarkerType.ArrowClosed }
+          });
+        }
+      });
+
+      let importedMultiplier = 1;
+      if (configRows.length > 0 && configRows[0]['Global Multiplier']) {
+        importedMultiplier = Number(configRows[0]['Global Multiplier']);
         setMultiplier(importedMultiplier);
-      };
-      reader.readAsBinaryString(file);
-    }
+      }
+
+      const newTabs: TrafficFlow[] = [];
+      tabDataMap.forEach((flow, name) => {
+        const layoutedNodes = autoLayoutNodes(flow.nodes, flow.edges);
+        const evaluatedNodes = runEvaluation(layoutedNodes, flow.edges, importedMultiplier);
+
+        newTabs.push({
+          id: `tab-${Date.now()}-${name}`,
+          name: name,
+          nodes: evaluatedNodes,
+          edges: flow.edges
+        });
+      });
+
+      if (newTabs.length > 0) {
+        setTabs(newTabs);
+        setActiveTabId(newTabs[0].id);
+        setNodes(newTabs[0].nodes);
+        setEdges(newTabs[0].edges);
+      }
+    };
+    reader.readAsBinaryString(file);
   };
 
   return (
