@@ -1,5 +1,5 @@
 import type { Edge, Node } from '@xyflow/react';
-import type { TrafficNodeData, EvaluationResult } from './types';
+import type { TrafficNodeData, EvaluationResult, TrafficEdgeData } from './types';
 
 export function evaluateTraffic(
     nodes: Node<TrafficNodeData>[],
@@ -10,7 +10,7 @@ export function evaluateTraffic(
 
     // 1. Initialize Map
     const inDegree = new Map<string, number>();
-    const incomingEdges = new Map<string, string[]>(); // target -> source[]
+    const incomingEdges = new Map<string, { sourceId: string; multiplier: number }[]>(); // target -> {source, multiplier}[]
 
     nodes.forEach(node => {
         inDegree.set(node.id, 0);
@@ -21,7 +21,8 @@ export function evaluateTraffic(
         // Only count edges that connect valid nodes
         if (inDegree.has(edge.target) && inDegree.has(edge.source)) {
             inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1);
-            incomingEdges.get(edge.target)?.push(edge.source);
+            const multiplier = (edge.data as TrafficEdgeData)?.multiplier ?? 1;
+            incomingEdges.get(edge.target)?.push({ sourceId: edge.source, multiplier });
         }
     });
 
@@ -67,16 +68,17 @@ export function evaluateTraffic(
         if (!node) return;
 
         let flow = 0;
-        const sources = incomingEdges.get(nodeId) || [];
+        const incoming = incomingEdges.get(nodeId) || [];
 
-        if (sources.length === 0) {
+        if (incoming.length === 0) {
             // Inference: No incoming edges means it's an entry node
             // Entry Node generates its own traffic from baseline dailyQPS
             flow = (node.data.dailyQPS || 0) * multiplier;
         } else {
-            // Dependent Node: Only carries flow from its upstream sources
-            sources.forEach(sourceId => {
-                flow += (flowMap.get(sourceId) || 0);
+            // Dependent Node: Sum up (upstream flow * edge multiplier)
+            incoming.forEach(inc => {
+                const sourceFlow = flowMap.get(inc.sourceId) || 0;
+                flow += sourceFlow * inc.multiplier;
             });
         }
 

@@ -14,6 +14,10 @@ export interface TrafficNodeData extends Record<string, unknown> {
     bottleneckType?: 'none' | 'rate_limit' | 'max_capacity';
 }
 
+export interface TrafficEdgeData extends Record<string, unknown> {
+    multiplier: number;
+}
+
 export interface EvaluationResult {
     nodeId: string;
     currentQPS: number;

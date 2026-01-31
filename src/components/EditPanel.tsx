@@ -1,11 +1,12 @@
 import React from 'react';
 import type { Node, Edge } from '@xyflow/react';
-import type { TrafficNodeData } from '../logic/types';
+import type { TrafficNodeData, TrafficEdgeData } from '../logic/types';
 
 interface EditPanelProps {
     type: 'node' | 'edge';
     selectedItem: Node<TrafficNodeData> | Edge;
     updateNodeData?: (id: string, newData: Partial<TrafficNodeData>) => void;
+    updateEdgeData?: (id: string, newData: Partial<TrafficEdgeData>) => void;
     deleteNode?: (id: string) => void;
     deleteEdge?: (id: string) => void;
 }
@@ -14,11 +15,14 @@ export const EditPanel: React.FC<EditPanelProps> = ({
     type,
     selectedItem,
     updateNodeData,
+    updateEdgeData,
     deleteNode,
     deleteEdge
 }) => {
     if (type === 'edge') {
         const edge = selectedItem as Edge;
+        const multiplier = (edge.data as TrafficEdgeData)?.multiplier || 1;
+
         return (
             <div className="edit-panel">
                 <h3 className="panel-title">Edit Connection</h3>
@@ -28,6 +32,18 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                 <div className="form-group">
                     <label>To: {edge.target}</label>
                 </div>
+
+                <div className="form-group">
+                    <label>Call Multiplier (Number of calls per request)</label>
+                    <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={multiplier}
+                        onChange={e => updateEdgeData?.(edge.id, { multiplier: parseInt(e.target.value) || 1 })}
+                    />
+                </div>
+
                 <div style={{ marginTop: 20 }}>
                     <button
                         className="btn btn-danger"

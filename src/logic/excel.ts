@@ -49,7 +49,8 @@ export const exportToExcel = (tabs: TrafficFlow[], activeTabId: string, currentN
                     'To ID': toSimpleId,
                     'Tab Name': tab.name,
                     'From Microservice': sourceNode.data.microservice,
-                    'To Microservice': targetNode.data.microservice
+                    'To Microservice': targetNode.data.microservice,
+                    'Call Multiplier': (e.data as any)?.multiplier || 1
                 });
             }
         });
@@ -124,6 +125,12 @@ export const parseExcelFile = async (
                     tabDataMap.get(tabName)!.nodes.push(node);
                 });
 
+                // 1. Initial Layout Pass for all tabs to determine node positions
+                tabDataMap.forEach((flow, _name) => {
+                    flow.nodes = autoLayoutNodes(flow.nodes, []); // Layout without edges first to get positions
+                });
+
+                // 2. Parse Edges with smart handle calculation
                 edgesRows.forEach(row => {
                     const tabName = String(row['Tab Name'] || 'Flow').trim();
                     const lookup = nodeLookup.get(tabName);
@@ -151,14 +158,38 @@ export const parseExcelFile = async (
                     }
 
                     if (sourceId && targetId) {
-                        tabDataMap.get(tabName)!.edges.push({
+                        const multiplier = Number(row['Call Multiplier']) || 1;
+
+                        const tabFlow = tabDataMap.get(tabName)!;
+                        const sourceNode = tabFlow.nodes.find(n => n.id === sourceId);
+                        const targetNode = tabFlow.nodes.find(n => n.id === targetId);
+
+                        let sourceHandle = 's-right';
+                        let targetHandle = 't-left';
+
+                        if (sourceNode && targetNode) {
+                            const dx = targetNode.position.x - sourceNode.position.x;
+                            const dy = targetNode.position.y - sourceNode.position.y;
+
+                            if (Math.abs(dx) > Math.abs(dy)) {
+                                sourceHandle = dx > 0 ? 's-right' : 's-left';
+                                targetHandle = dx > 0 ? 't-left' : 't-right';
+                            } else {
+                                sourceHandle = dy > 0 ? 's-bottom' : 's-top';
+                                targetHandle = dy > 0 ? 't-top' : 't-bottom';
+                            }
+                        }
+
+                        tabFlow.edges.push({
                             id: `e-${sourceId}-${targetId}-${Math.random().toString(36).substr(2, 5)}`,
                             source: sourceId,
                             target: targetId,
-                            sourceHandle: 's-right',
-                            targetHandle: 't-left',
+                            sourceHandle,
+                            targetHandle,
                             animated: true,
-                            markerEnd: { type: MarkerType.ArrowClosed }
+                            markerEnd: { type: MarkerType.ArrowClosed },
+                            label: multiplier > 1 ? `x${multiplier}` : '',
+                            data: { multiplier }
                         });
                     }
                 });
@@ -172,8 +203,10 @@ export const parseExcelFile = async (
                 const newTabs: TrafficFlow[] = [];
                 let tabCounter = 0;
                 tabDataMap.forEach((flow, name) => {
-                    const layoutedNodes = autoLayoutNodes(flow.nodes, flow.edges);
-                    const evaluatedNodes = runEvaluation(layoutedNodes, flow.edges, importedMultiplier);
+                    // Final layout factoring in edges (if the layout logic needs it)
+                    // and then evaluation
+                    const finalNodes = autoLayoutNodes(flow.nodes, flow.edges);
+                    const evaluatedNodes = runEvaluation(finalNodes, flow.edges, importedMultiplier);
 
                     newTabs.push({
                         id: `tab-${Date.now()}-${tabCounter++}`,

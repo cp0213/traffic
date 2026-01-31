@@ -51,8 +51,11 @@ export function CustomNode({ id, data, selected }: NodeProps<Node<TrafficNodeDat
 
     return (
         <div className={`custom-node ${selected ? 'selected' : ''}`} style={{ borderColor: statusColor }}>
+            {/* Simple handles for dynamic connection */}
             <Handle type="target" position={Position.Top} id="t-top" className="custom-handle" />
             <Handle type="target" position={Position.Left} id="t-left" className="custom-handle" />
+            <Handle type="target" position={Position.Right} id="t-right" className="custom-handle" />
+            <Handle type="target" position={Position.Bottom} id="t-bottom" className="custom-handle" />
 
             <div className="node-header">
                 {isEditing ? (
@@ -152,6 +155,8 @@ export function CustomNode({ id, data, selected }: NodeProps<Node<TrafficNodeDat
                 </div>
             </div>
 
+            <Handle type="source" position={Position.Top} id="s-top" className="custom-handle" />
+            <Handle type="source" position={Position.Left} id="s-left" className="custom-handle" />
             <Handle type="source" position={Position.Right} id="s-right" className="custom-handle" />
             <Handle type="source" position={Position.Bottom} id="s-bottom" className="custom-handle" />
         </div>

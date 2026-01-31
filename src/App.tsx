@@ -10,7 +10,6 @@ import { EditPanel } from './components/EditPanel';
 import { evaluateTraffic } from './logic/evaluator';
 import type { TrafficNodeData } from './logic/types';
 import { TrafficContext } from './logic/context';
-import { autoLayoutNodes } from './logic/layout';
 import { exportToExcel, parseExcelFile, type TrafficFlow } from './logic/excel';
 import { exportToJSON, parseJSONFile } from './logic/json';
 
@@ -31,6 +30,7 @@ export default function App() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [multiplier, setMultiplier] = useState(1);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTabName, setEditingTabName] = useState('');
 
@@ -75,7 +75,12 @@ export default function App() {
   }, [edges, multiplier, runEvaluation, setNodes]);
 
   const onConnect = useCallback((params: Connection) => {
-    const newEdge = { ...params, animated: true, markerEnd: { type: MarkerType.ArrowClosed } };
+    const newEdge = {
+      ...params,
+      animated: true,
+      markerEnd: { type: MarkerType.ArrowClosed },
+      data: { multiplier: 1 }
+    };
     setEdges((eds) => addEdge(newEdge, eds));
   }, [setEdges]);
 
@@ -96,7 +101,25 @@ export default function App() {
     });
   };
 
+  const updateEdgeData = (id: string, newData: any) => {
+    setEdges(eds => {
+      const updated = eds.map(e => {
+        if (e.id === id) {
+          const updatedEdge = { ...e, data: { ...e.data, ...newData } };
+          // If multiplier changed, update label
+          if (newData.multiplier !== undefined) {
+            updatedEdge.label = newData.multiplier > 1 ? `x${newData.multiplier}` : '';
+          }
+          return updatedEdge;
+        }
+        return e;
+      });
+      return updated;
+    });
+  };
+
   const selectedNode = nodes.find(n => n.id === selectedNodeId);
+  const selectedEdge = edges.find(e => e.id === selectedEdgeId);
 
   const addNewNode = () => {
     const id = Date.now().toString();
@@ -140,6 +163,7 @@ export default function App() {
       setNodes(target.nodes);
       setEdges(target.edges);
       setSelectedNodeId(null);
+      setSelectedEdgeId(null);
     }
   };
 
@@ -157,6 +181,7 @@ export default function App() {
     setNodes([]);
     setEdges([]);
     setSelectedNodeId(null);
+    setSelectedEdgeId(null);
   };
 
   const handleCloseTab = (e: React.MouseEvent, id: string) => {
@@ -300,9 +325,15 @@ export default function App() {
             nodeTypes={nodeTypes}
             onNodeClick={(_, node) => {
               setSelectedNodeId(node.id);
+              setSelectedEdgeId(null);
+            }}
+            onEdgeClick={(_, edge) => {
+              setSelectedEdgeId(edge.id);
+              setSelectedNodeId(null);
             }}
             onPaneClick={() => {
               setSelectedNodeId(null);
+              setSelectedEdgeId(null);
             }}
             deleteKeyCode={['Backspace', 'Delete']}
             fitView
@@ -319,6 +350,15 @@ export default function App() {
             selectedItem={selectedNode}
             updateNodeData={updateNodeData}
             deleteNode={deleteNode}
+          />
+        )}
+
+        {selectedEdge && (
+          <EditPanel
+            type="edge"
+            selectedItem={selectedEdge}
+            updateEdgeData={updateEdgeData}
+            deleteEdge={deleteEdge}
           />
         )}
 
